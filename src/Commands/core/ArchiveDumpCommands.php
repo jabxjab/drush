@@ -528,10 +528,13 @@ class ArchiveDumpCommands extends DrushCommands
             );
         }
 
-        $docrootRegexpPrefix = $this->getDocrootRegexpPrefix();
         $excludes = [
-            '#^' . $docrootRegexpPrefix . 'sites/.+/settings\..+\.php$#',
+            '#^' . $this->getDocrootRegexpPrefix() . 'sites/.+/settings\..+\.php$#',
         ];
+
+        $drupalFilesPath = $this->getDrupalFilesDir();
+        $drupalFilesPathRelative = Path::makeRelative($drupalFilesPath, $this->getComposerRoot());
+        $excludes[] = '#^' . $drupalFilesPathRelative . '$#';
 
         $drupalFilesPath = $this->getDrupalFilesDir();
         $drupalFilesPathRelative = Path::makeRelative($drupalFilesPath, $this->getComposerRoot());
