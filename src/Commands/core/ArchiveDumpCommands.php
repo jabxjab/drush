@@ -17,6 +17,7 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Symfony\Component\Filesystem\Exception\IOException;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Process\Process;
 use Symfony\Component\Yaml\Yaml;
 use Throwable;
 use Traversable;
@@ -326,23 +327,23 @@ class ArchiveDumpCommands extends DrushCommands
             '.git',
             'vendor',
         ];
-        /** @var \Drush\SiteAlias\ProcessManager $processManager */
-        $processManager = $this->processManager();
-        $process = $processManager->shell(sprintf('composer info --path --format=json --working-dir=%s', $this->getComposerRoot()));
+
+        $process = Process::fromShellCommandline(sprintf('composer info --path --format=json --working-dir=%s', $this->getComposerRoot()));
         $process->mustRun();
-        $installedPackages = $process->getOutputAsJson()['installed'] ?? [];
+        $composerInfoRaw = $process->getOutput();
+        $installedPackages = json_decode($composerInfoRaw, true)['installed'] ?? [];
         $installedPackagesPaths = array_column($installedPackages, 'path');
-        $installedPackagesBaseDirs = array_map(
-            fn($path) =>ltrim(str_replace([$this->getComposerRoot()], '', $path), '/'),
+        $installedPackagesRelativePaths = array_map(
+            fn($path) => ltrim(str_replace([$this->getComposerRoot()], '', $path), '/'),
             $installedPackagesPaths
         );
-        $installedPackagesBaseDirs = array_unique(
+        $installedPackagesRelativePaths = array_unique(
             array_filter(
-                $installedPackagesBaseDirs,
+                $installedPackagesRelativePaths,
                 fn($path) => '' !== $path && 0 !== strpos($path, 'vendor')
             )
         );
-        $excludeDirs = array_merge($excludeDirs, $installedPackagesBaseDirs);
+        $excludeDirs = array_merge($excludeDirs, $installedPackagesRelativePaths);
 
         if (Path::isBasePath($this->getComposerRoot(), $this->archiveDir)) {
             $excludeDirs[] = Path::makeRelative($this->archiveDir, $this->getComposerRoot());
