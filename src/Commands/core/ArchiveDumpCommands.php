@@ -18,6 +18,7 @@ use RecursiveIteratorIterator;
 use Symfony\Component\Filesystem\Exception\IOException;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Yaml\Yaml;
+use Throwable;
 use Traversable;
 use Webmozart\PathUtil\Path;
 
@@ -91,8 +92,7 @@ class ArchiveDumpCommands extends DrushCommands
      *
      * @throws \Exception
      */
-    public function dump(
-        array $options = [
+    public function dump(array $options = [
         'code' => false,
         'files' => false,
         'db' => false,
@@ -316,13 +316,18 @@ class ArchiveDumpCommands extends DrushCommands
         $excludes = $options['exclude-code-paths']
             ? $this->getRegexpsForPaths(explode(',', $options['exclude-code-paths']))
             : [];
+
+        $excludeDirs = [
+            '.git',
+            'vendor',
+        ];
+        if (Path::isBasePath($this->getComposerRoot(), $this->archiveDir)) {
+            $excludeDirs[] = Path::makeRelative($this->archiveDir, $this->getComposerRoot());
+        }
         $excludes = array_merge(
             $excludes,
             $this->getRegexpsForPaths(
-                [
-                    '.git',
-                    'vendor',
-                ]
+                $excludeDirs
             ),
             $this->getDrupalExcludes()
         );
@@ -512,13 +517,18 @@ class ArchiveDumpCommands extends DrushCommands
         }
 
         foreach ($composerJson['extra']['installer-paths'] as $path => $types) {
-            if (!array_intersect($types, [
-                'type:drupal-core',
-                'type:drupal-library',
-                'type:drupal-module',
-                'type:drupal-profile',
-                'type:drupal-theme',
-            ])) {
+            if (
+                !array_intersect(
+                    $types,
+                    [
+                        'type:drupal-core',
+                        'type:drupal-library',
+                        'type:drupal-module',
+                        'type:drupal-profile',
+                        'type:drupal-theme',
+                    ]
+                )
+            ) {
                 continue;
             }
 
@@ -551,13 +561,23 @@ class ArchiveDumpCommands extends DrushCommands
         }
 
         // Lookup for non-empty $databases value in a site/*/settings.php file.
+        // Remove all PHP "include" and "require" directives from settings.php file before evaluating
+        // the $databases variable.
+        $settingPhpWithoutIncludes = preg_replace('/\n*\s*(include|require).+?;|<\?php/m', '', file_get_contents($file));
 
-        if (!preg_match('/\$databases[\s\[=]+((.|\n)*?);/m', file_get_contents($file), $matches)) {
-            return;
+        try {
+            eval($settingPhpWithoutIncludes);
+        } catch (Throwable $t) {
+            throw new Exception(
+                dt(
+                    'Failed to detect an absence of database connection settings in !path: !error',
+                    ['!path' => $localFileName, '!error' => $t->getMessage()]
+                )
+            );
         }
 
         /** @var $databases */
-        if (!eval($matches[0]) && !$databases) {
+        if (empty($databases)) {
             return;
         }
 
